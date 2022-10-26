@@ -1,5 +1,4 @@
 use clap::Parser;
-use minidom::{Element, NSChoice};
 use std::{error::Error, fs, path::PathBuf};
 use tcx::*;
 
@@ -23,14 +22,11 @@ struct Cli {
     time: i64,
 }
 
-const F_ACTIVITIES: fn(&&Element) -> bool = |e| e.is("Activities", NSChoice::Any);
-const F_ACTIVITY: fn(&&Element) -> bool = |e| e.is("Activity", NSChoice::Any);
-const F_LAP: fn(&&Element) -> bool = |e| e.is("Lap", NSChoice::Any);
-const F_TRACK: fn(&&Element) -> bool = |e| e.is("Track", NSChoice::Any);
-const F_TRACKPOINT: fn(&&Element) -> bool = |e| e.is("Trackpoint", NSChoice::Any);
+const SEPARATOR: char = ';';
 
-fn write_it(pwr: f64, hr: f64, secs: i64, dist: f64, elev: f64, pretty: bool) {
+fn write(pwr: f64, hr: f64, secs: i64, dist: f64, elev: f64, pretty: bool) {
     if pretty {
+        // print human readable
         println!(
             "{:6.2}W / {:6.2}bpm for {}s ({:5.3}km, {:5.2}km/h, {:3.0}m)",
             pwr / (secs as f64),
@@ -41,81 +37,87 @@ fn write_it(pwr: f64, hr: f64, secs: i64, dist: f64, elev: f64, pretty: bool) {
             elev
         )
     } else {
+        // print CSV style
         println!(
-            "{:6.2};{:6.2};{};{:5.3};{:5.2};{:5.1}",
+            "{:6.2}{sep}{:6.2}{sep}{}{sep}{:5.3}{sep}{:5.2}{sep}{:5.1}",
             pwr / (secs as f64),
             hr / (secs as f64),
             secs,
             dist,
             dist / (secs as f64) * 3600.0,
-            elev
+            elev, 
+            sep = SEPARATOR
         )
     }
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    // parse command line
     let cli = Cli::parse();
 
-    let root: Element = fs::read_to_string(cli.path)?.parse()?;
+    // get points
+    let filter: fn(&Trackpoint) -> bool =
+        |t| t.has_altitude() && t.has_distance() && t.has_heartrate() && t.has_power();
+    let points = Trackpoint::from_tcx(&fs::read_to_string(cli.path)?.parse()?, filter)?;
 
-    let it = root.children().filter(F_ACTIVITIES);
-    let it = it.map(|e| e.children().filter(F_ACTIVITY)).flatten();
-    let it = it.map(|e| e.children().filter(F_LAP)).flatten();
-    let it = it.map(|e| e.children().filter(F_TRACK)).flatten();
-    let it = it.map(|e| e.children().filter(F_TRACKPOINT)).flatten();
-
-    let mut points = it
-        .map(|trackpoint| Trackpoint::parse(trackpoint))
-        .collect::<Result<Vec<_>, _>>()?;
-    points.dedup();
-
+    // first point (error if there is none)
     let start = points.first().ok_or("No points!")?;
 
-    let mut distance_0 = start.distance()?;
-    let mut distance = 0.0;
-    let mut group = 0;
-    let mut duration = 0;
-    let mut power = 0.0;
-    let mut heartrate = 0.0;
-    let mut ascend = 0.0;
-
+    // determine length of group in secends based on command line options
     let group_duration = if let Some(number) = cli.number {
         let number = number as i64;
-        (points
-            .last()
-            .expect("UNREACHABLE (first but no last)")
-            .duration_since(start)
-            + number
-            - 1)
-            / number
+        let end = points.last().expect("UNREACHABLE (first but no last)");
+        (end.duration_since(start) + number - 1) / number
     } else {
         cli.time
     };
 
+    let mut group_id = 0;
+    let mut distance_0 = start.distance()?;
+    let mut distance = 0.0;
+    let mut duration = 0;
+    let mut ascend = 0.0;
+    let mut power = 0.0;
+    let mut heartrate = 0.0;
+
     for (m, n) in points.iter().zip(points.iter().skip(1)) {
         let duration_delta = n.duration_since(m);
-        duration += duration_delta;
-        power += (n.power()? + m.power()?) / 2.0 * (duration_delta as f64);
-        heartrate += (n.heartrate()? + m.heartrate()?) / 2.0 * (duration_delta as f64);
+
+        // update distance in km
         distance = (n.distance()? - distance_0) / 1000.0;
+        
+        // increment duration
+        duration += duration_delta;
+        
+        // increment ascend if applicable
         if n.altitude() > m.altitude() {
             ascend += n.altitude()? - m.altitude()?;
         }
 
-        let group_n = n.duration_since(start) / group_duration;
-        if group_n > group {
-            write_it(power, heartrate, duration, distance, ascend, cli.pretty);
-            group = group_n;
-            power = 0.0;
-            heartrate = 0.0;
-            duration = 0;
+        // increment power / heartrate accumulators
+        power += (n.power()? + m.power()?) / 2.0 * (duration_delta as f64);
+        heartrate += (n.heartrate()? + m.heartrate()?) / 2.0 * (duration_delta as f64);
+
+        // check if group is done
+        let next_group_id = n.duration_since(start) / group_duration;
+        if next_group_id > group_id {
+            // print group
+            write(power, heartrate, duration, distance, ascend, cli.pretty);
+
+            // reset accumulators
+            group_id = next_group_id;
             distance_0 = n.distance()?;
             distance = 0.0;
+            duration = 0;
             ascend = 0.0;
+            power = 0.0;
+            heartrate = 0.0;
         }
     }
+
+    // print last group if applicable
     if duration > 0 {
-        write_it(power, heartrate, duration, distance, ascend, cli.pretty);
+        write(power, heartrate, duration, distance, ascend, cli.pretty);
     }
 
     Ok(())
