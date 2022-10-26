@@ -28,32 +28,51 @@ struct Cli {
 
 const SEPARATOR: char = ';';
 
-fn write(pwr: f64, hr: f64, secs: i64, dist: f64, elev: f64, qdh: f64, pretty: bool) {
+fn write(
+    power: f64,
+    heartrate: f64,
+    duration: i64,
+    distance: f64,
+    elevation: f64,
+    qdh: f64,
+    pretty: bool,
+) {
     if pretty {
         // print human readable
         println!(
             "{:6.2}W / {:6.2}bpm for {}s ({:5.3}km, {:5.2}km/h, {:3.0}m, QDH: {:5.1})",
-            pwr / (secs as f64),
-            hr / (secs as f64),
-            secs,
-            dist / 1000.0,
-            dist / (secs as f64) * 3.6,
-            elev,
+            power / (duration as f64),
+            heartrate / (duration as f64),
+            duration,
+            distance / 1000.0,
+            distance / (duration as f64) * 3.6,
+            elevation,
             qdh
         )
     } else {
         // print CSV style
         println!(
             "{:6.2}{sep}{:6.2}{sep}{}{sep}{:5.3}{sep}{:5.2}{sep}{:5.1}{sep}{:5.1}",
-            pwr / (secs as f64),
-            hr / (secs as f64),
-            secs,
-            dist / 1000.0,
-            dist / (secs as f64) * 3.6,
-            elev,
+            power / (duration as f64),
+            heartrate / (duration as f64),
+            duration,
+            distance / 1000.0,
+            distance / (duration as f64) * 3.6,
+            elevation,
             qdh,
             sep = SEPARATOR
         )
+    }
+}
+
+fn calc_qdh(elevation: f64, distance: f64) -> f64 {
+    if distance > 0.0 {
+        // distance/1km * (gradient/1%)^2
+        // distance/1m / 1000 * (elevation/1m)^2 / (distance/1m)^2 * 100^2
+        // (elevation/1m)^2 / (distance/1m) * 10
+        elevation * elevation / distance * 10.0
+    } else {
+        0.0
     }
 }
 
@@ -79,61 +98,60 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut distance = 0.0;
     let mut duration = 0;
-    let mut ascend = 0.0;
+    let mut elevation = 0.0;
     let mut power = 0.0;
     let mut heartrate = 0.0;
 
     let mut distance_qdh = 0.0;
-    let mut ascend_qdh = 0.0;
+    let mut elevation_qdh = 0.0;
     let mut qdh = 0.0;
 
     for (m, n) in points.iter().zip(points.iter().skip(1)) {
         // increments
-        let dur = n.duration_since(m);
-        let asc = n.altitude()? - m.altitude()?;
+        let duration_inc = n.duration_since(m);
+        let distance_inc = n.distance()? - m.distance()?;
+        let elevation_inc = n.altitude()? - m.altitude()?;
 
         // update distance
-        distance += n.distance()? - m.distance()?;
+        distance += distance_inc;
 
         // increment duration
-        duration += dur;
+        duration += duration_inc;
 
         // increment ascend if applicable
-        if asc > 0.0 {
-            ascend += asc;
-            ascend_qdh += asc;
+        if elevation_inc > 0.0 {
+            elevation += elevation_inc;
+            elevation_qdh += elevation_inc;
         }
 
         // increment power / heartrate accumulators
-        power += (n.power_or_default() + m.power_or_default()) / 2.0 * (dur as f64);
+        power += (n.power_or_default() + m.power_or_default()) / 2.0 * (duration_inc as f64);
         heartrate +=
-            (n.heartrate_or_default() + m.heartrate_or_default()) / 2.0 * (dur as f64);
+            (n.heartrate_or_default() + m.heartrate_or_default()) / 2.0 * (duration_inc as f64);
 
         // update qdh
-        distance_qdh += n.distance()? - m.distance()?;
+        distance_qdh += distance_inc;
         if distance_qdh >= cli.qdh {
-            qdh += ascend_qdh * ascend_qdh / distance_qdh * 10.0;
-            ascend_qdh = 0.0;
+            qdh += calc_qdh(elevation_qdh, distance_qdh);
+            elevation_qdh = 0.0;
             distance_qdh = 0.0;
         }
 
         // check if group is done
         if duration >= group_duration {
-            if distance_qdh > 0.0 {
-                qdh += ascend_qdh * ascend_qdh / distance_qdh / 1000.0;
-            }
-            ascend_qdh = 0.0;
+            qdh += calc_qdh(elevation_qdh, distance_qdh);
+            elevation_qdh = 0.0;
             distance_qdh = 0.0;
 
             // print group
             write(
-                power, heartrate, duration, distance, ascend, qdh, cli.pretty,
+                power, heartrate, duration, distance, elevation, qdh, cli.pretty,
             );
 
             // reset accumulators
             distance = 0.0;
             duration = 0;
-            ascend = 0.0;
+            elevation = 0.0;
             power = 0.0;
             heartrate = 0.0;
             qdh = 0.0;
@@ -142,11 +160,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // print last group if applicable
     if duration > 0 {
-        if distance_qdh > 0.0 {
-            qdh += ascend_qdh * ascend_qdh / distance_qdh / 1000.0;
-        }
+        qdh += calc_qdh(elevation_qdh, distance_qdh);
         write(
-            power, heartrate, duration, distance, ascend, qdh, cli.pretty,
+            power, heartrate, duration, distance, elevation, qdh, cli.pretty,
         );
     }
 
