@@ -153,9 +153,17 @@ impl Trackpoint {
             .ok_or_else(|| format!("Missing heartrate in {:?}", self))
     }
 
+    pub fn heartrate_or_default(&self) -> f64 {
+        self.heartrate.unwrap_or_default()
+    }
+
     pub fn power(&self) -> Result<f64, String> {
         self.power
             .ok_or_else(|| format!("Missing power in {:?}", self))
+    }
+
+    pub fn power_or_default(&self) -> f64 {
+        self.power.unwrap_or_default()
     }
 
     pub fn has_altitude(&self) -> bool {
