@@ -40,25 +40,27 @@ fn write(
     if pretty {
         // print human readable
         println!(
-            "{:6.2}W / {:6.2}bpm for {}s ({:5.3}km, {:5.2}km/h, {:3.0}m, QDH: {:5.1})",
+            "{:6.2}W / {:6.2}bpm for {:5}s ({:7.3}km, {:5.2}km/h, {:4.0}m, {:5.1} m/km, QDH: {:6.1})",
             power / (duration as f64),
             heartrate / (duration as f64),
             duration,
             distance / 1000.0,
             distance / (duration as f64) * 3.6,
             elevation,
+            elevation / distance * 1000.0,
             qdh
         )
     } else {
         // print CSV style
         println!(
-            "{:6.2}{sep}{:6.2}{sep}{}{sep}{:5.3}{sep}{:5.2}{sep}{:5.1}{sep}{:5.1}",
+            "{:6.2}{sep}{:6.2}{sep}{:5}{sep}{:7.3}{sep}{:5.2}{sep}{:4.0}{sep}{:5.1}{sep}{:6.1}",
             power / (duration as f64),
             heartrate / (duration as f64),
             duration,
             distance / 1000.0,
             distance / (duration as f64) * 3.6,
             elevation,
+            elevation / distance * 1000.0,
             qdh,
             sep = SEPARATOR
         )
