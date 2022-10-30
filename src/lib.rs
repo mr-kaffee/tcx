@@ -1,4 +1,8 @@
-use std::{error::Error, ops::Index, str::FromStr};
+use std::{
+    error::Error,
+    ops::{Index, IndexMut},
+    str::FromStr,
+};
 
 use chrono::{DateTime, Utc};
 use minidom::{Element, NSChoice};
@@ -82,6 +86,24 @@ pub enum TrkPtField {
     Power,
 }
 
+impl TrkPtField {
+    pub fn get_tags(&self) -> &[&[Tag]] {
+        match self {
+            TrkPtField::Latitude => &[&[Tag::Position, Tag::LatitudeDegrees]],
+            TrkPtField::Longitude => &[&[Tag::Position, Tag::LongitudeDegrees]],
+            TrkPtField::Altitude => &[&[Tag::AltitudeMeters]],
+            TrkPtField::Distance => &[&[Tag::DistanceMeters]],
+            TrkPtField::Heartrate => &[&[Tag::HeartRateBpm, Tag::Value]],
+            TrkPtField::Cadence => &[
+                &[Tag::Cadence],
+                &[Tag::Extensions, Tag::TPX, Tag::RunCadence],
+            ],
+            TrkPtField::Speed => &[&[Tag::Extensions, Tag::TPX, Tag::Speed]],
+            TrkPtField::Power => &[&[Tag::Extensions, Tag::TPX, Tag::Watts]],
+        }
+    }
+}
+
 impl AsRef<str> for TrkPtField {
     /// Get `TrkPtField` as `&str`
     ///
@@ -118,7 +140,7 @@ pub const TRK_PT_FIELDS: [TrkPtField; 8] = [
 ];
 
 /// a track point
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, Default)]
 pub struct Trackpoint {
     /// Timestamp when the trackpoint was recorded (`<Time>`)
     pub time: DateTime<Utc>,
@@ -153,6 +175,21 @@ impl Index<&TrkPtField> for Trackpoint {
             TrkPtField::Cadence => &self.cadence,
             TrkPtField::Speed => &self.speed,
             TrkPtField::Power => &self.power,
+        }
+    }
+}
+
+impl IndexMut<&TrkPtField> for Trackpoint {
+    fn index_mut(&mut self, index: &TrkPtField) -> &mut Self::Output {
+        match index {
+            TrkPtField::Latitude => &mut self.latitude,
+            TrkPtField::Longitude => &mut self.longitude,
+            TrkPtField::Altitude => &mut self.altitude,
+            TrkPtField::Distance => &mut self.distance,
+            TrkPtField::Heartrate => &mut self.heartrate,
+            TrkPtField::Cadence => &mut self.cadence,
+            TrkPtField::Speed => &mut self.speed,
+            TrkPtField::Power => &mut self.power,
         }
     }
 }
@@ -202,8 +239,8 @@ impl TcxElement for Element {
 impl Trackpoint {
     /// Read track points from TCX element flattening any structure
     ///
-    /// This function assumes that [`<Trackpoint>`][Tag::Trackpoint]s are nested in [`<Track>`][Tag::Track]s, [`<Track>`][Tag::Track]s 
-    /// are nested in [`<Lap>`][Tag::Lap]s, [`<Lap>`][Tag::Lap]s are nested in [`<Activity>`][Tag::Activity]s, and 
+    /// This function assumes that [`<Trackpoint>`][Tag::Trackpoint]s are nested in [`<Track>`][Tag::Track]s, [`<Track>`][Tag::Track]s
+    /// are nested in [`<Lap>`][Tag::Lap]s, [`<Lap>`][Tag::Lap]s are nested in [`<Activity>`][Tag::Activity]s, and
     /// [`<Activity>`][Tag::Activity]s are nested in [`<Activities>`][Tag::Activities]'
     pub fn from_tcx(tcx: &Element, filter: fn(&Self) -> bool) -> Result<Vec<Self>, Box<dyn Error>> {
         // traverse document
@@ -225,7 +262,7 @@ impl Trackpoint {
     }
 
     /// Parse a single trackpoint for a [`<Trackpoint>`][Tag::Trackpoint]
-    /// 
+    ///
     /// # Examples
     /// ```
     /// # use tcx::*;
@@ -246,9 +283,9 @@ impl Trackpoint {
     ///   </Extensions>
     ///   <AnotherTag>will do no harm</AnotherTag>
     /// </Trackpoint>"#;
-    /// 
+    ///
     /// let trackpoint = Trackpoint::parse(&doc.parse().unwrap()).unwrap();
-    /// 
+    ///
     /// assert_eq!(trackpoint.longitude, Some(9.0));
     /// assert_eq!(trackpoint.latitude, Some(48.640970));
     /// assert_eq!(trackpoint.altitude, Some(450.0));
@@ -262,29 +299,20 @@ impl Trackpoint {
         let time = trackpoint
             .child_value(&[Tag::Time])?
             .ok_or_else(|| format!("Missing time in {:?}", trackpoint))?;
-        let latitude = trackpoint.child_value(&[Tag::Position, Tag::LatitudeDegrees])?;
-        let longitude = trackpoint.child_value(&[Tag::Position, Tag::LongitudeDegrees])?;
-        let altitude = trackpoint.child_value(&[Tag::AltitudeMeters])?;
-        let distance = trackpoint.child_value(&[Tag::DistanceMeters])?;
-        let heartrate = trackpoint.child_value(&[Tag::HeartRateBpm, Tag::Value])?;
-        let cadence = trackpoint.child_value(&[Tag::Cadence])?;
-        let speed = trackpoint.child_value(&[Tag::Extensions, Tag::TPX, Tag::Speed])?;
-        let power = trackpoint.child_value(&[Tag::Extensions, Tag::TPX, Tag::Watts])?;
-        let cadence = match cadence {
-            Some(_) => cadence,
-            None => trackpoint.child_value(&[Tag::Extensions, Tag::TPX, Tag::RunCadence])?,
+        let mut point = Trackpoint {
+            time,
+            ..Trackpoint::default()
         };
 
-        Ok(Trackpoint {
-            time,
-            latitude,
-            longitude,
-            altitude,
-            distance,
-            heartrate,
-            cadence,
-            speed,
-            power,
-        })
+        for field in &TRK_PT_FIELDS {
+            for tags in field.get_tags() {
+                if let Some(val) = trackpoint.child_value(tags)? {
+                    point[field] = Some(val);
+                    break;
+                }
+            }
+        }
+
+        Ok(point)
     }
 }
