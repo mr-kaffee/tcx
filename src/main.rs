@@ -1,7 +1,10 @@
 use clap::Parser;
 use std::{
     error::Error,
-    path::PathBuf, fs,
+    fs::{self, File},
+    io::Write,
+    path::PathBuf,
+    str::FromStr,
 };
 use tcx::*;
 
@@ -27,6 +30,9 @@ struct Cli {
     /// distance in meters for QDH gradient evaluation
     #[arg(long, default_value_t = 50.0, value_parser = parse_f64_non_neg)]
     qdh: f64,
+
+    #[arg(short, hide(true))]
+    debug: Option<Debug>,
 }
 
 fn parse_f64_non_neg(s: &str) -> Result<f64, String> {
@@ -90,13 +96,115 @@ fn calc_qdh(elevation: f64, distance: f64) -> f64 {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Debug {
+    Json,
+    Csv,
+}
+
+impl FromStr for Debug {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "json" => Ok(Debug::Json),
+            "csv" => Ok(Debug::Csv),
+            _ => Err(format!("'{}' is not a valid debug option.", s)),
+        }
+    }
+}
+
+impl Debug {
+    fn create_file(&self) -> Result<File, std::io::Error> {
+        match self {
+            Debug::Json => File::create("debug.json"),
+            Debug::Csv => File::create("debug.csv"),
+        }
+    }
+
+    fn debug_json(&self, mut file: File, points: Vec<Trackpoint>) -> Result<(), Box<dyn Error>> {
+        // header
+        writeln!(file, "[")?;
+
+        // body
+        let mut first = true;
+        for point in points {
+            if first {
+                first = false;
+            } else {
+                writeln!(file, ",")?;
+            }
+
+            write!(file, "{{\"Time\": \"{}\"", point.time)?;
+            for field in TrkPtField::iter() {
+                write!(file, ", \"{}\": ", <&TrkPtField as Into<&str>>::into(field))?;
+                match point[field] {
+                    Some(v) => write!(file, "{}", v)?,
+                    None => write!(file, "null")?,
+                }
+            }
+            write!(file, "}}")?;
+        }
+
+        // footer
+        writeln!(file, "]")?;
+
+        Ok(())
+    }
+
+    fn debug_csv(&self, mut file: File, points: Vec<Trackpoint>) -> Result<(), Box<dyn Error>> {
+        // header
+        write!(file, "Time")?;
+        for field in TrkPtField::iter() {
+            write!(file, ",{}", <&TrkPtField as Into<&str>>::into(field))?;
+        }
+        writeln!(file)?;
+
+        // body
+        for point in points {
+            write!(file, "{}", point.time)?;
+            for field in TrkPtField::iter() {
+                write!(file, ",")?;
+                if let Some(v) = point[field] {
+                    write!(file, "{}", v)?;
+                }
+            }
+            writeln!(file)?;
+        }
+
+        // no footer in CSV
+
+        Ok(())
+    }
+
+    fn debug(&self, points: Vec<Trackpoint>) -> Result<(), Box<dyn Error>> {
+        let file = self.create_file()?;
+        println!("Debugging, {} points to {:?}", points.len(), file);
+
+        match self {
+            Debug::Json => self.debug_json(file, points)?,
+            Debug::Csv => self.debug_csv(file, points)?,
+        }
+
+        Ok(())
+    }
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     // parse command line
     let cli = Cli::parse();
 
     // get points
-    let filter: fn(&Trackpoint) -> bool = |t| t.altitude.is_some() && t.distance.is_some();
+    let filter: fn(&Trackpoint) -> bool = if cli.debug.is_some() {
+        |_| true
+    } else {
+        |t| t.altitude.is_some() && t.distance.is_some()
+    };
     let points = Trackpoint::from_tcx(&fs::read_to_string(cli.path)?.parse()?, filter)?;
+
+    if let Some(debug) = cli.debug {
+        return debug.debug(points);
+    }
 
     // first point (error if there is none)
     let start = points.first().ok_or("No points!")?;
