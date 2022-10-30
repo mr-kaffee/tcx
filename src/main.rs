@@ -136,8 +136,8 @@ impl Debug {
             }
 
             write!(file, "{{\"Time\": \"{}\"", point.time)?;
-            for field in TrkPtField::iter() {
-                write!(file, ", \"{}\": ", <&TrkPtField as Into<&str>>::into(field))?;
+            for field in &TRK_PT_FIELDS {
+                write!(file, ", \"{}\": ", field.as_ref())?;
                 match point[field] {
                     Some(v) => write!(file, "{}", v)?,
                     None => write!(file, "null")?,
@@ -155,15 +155,15 @@ impl Debug {
     fn debug_csv(&self, mut file: File, points: Vec<Trackpoint>) -> Result<(), Box<dyn Error>> {
         // header
         write!(file, "Time")?;
-        for field in TrkPtField::iter() {
-            write!(file, ",{}", <&TrkPtField as Into<&str>>::into(field))?;
+        for field in &TRK_PT_FIELDS {
+            write!(file, ",{}", field.as_ref())?;
         }
         writeln!(file)?;
 
         // body
         for point in points {
             write!(file, "{}", point.time)?;
-            for field in TrkPtField::iter() {
+            for field in &TRK_PT_FIELDS {
                 write!(file, ",")?;
                 if let Some(v) = point[field] {
                     write!(file, "{}", v)?;
