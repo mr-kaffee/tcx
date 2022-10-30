@@ -1,5 +1,8 @@
 use clap::Parser;
-use std::{error::Error, fs, path::PathBuf};
+use std::{
+    error::Error,
+    path::PathBuf, fs,
+};
 use tcx::*;
 
 #[derive(Parser)]
@@ -13,22 +16,31 @@ struct Cli {
     #[arg(short)]
     pretty: bool,
 
-    /// number of windows
-    #[arg(short, group = "windows")]
+    /// number of windows (1 .. 255)
+    #[arg(short, group = "windows", value_parser = clap::value_parser!(u8).range(1..))]
     number: Option<u8>,
 
-    /// length of windows in seconds
-    #[arg(short, group = "windows", default_value_t = 600)]
+    /// length of windows in seconds (> 0)
+    #[arg(short, group = "windows", default_value_t = 600, value_parser = clap::value_parser!(i64).range(1..))]
     time: i64,
 
     /// distance in meters for QDH gradient evaluation
-    #[arg(long, default_value_t = 50.0)]
+    #[arg(long, default_value_t = 50.0, value_parser = parse_f64_non_neg)]
     qdh: f64,
 }
 
-const SEPARATOR: char = ';';
+fn parse_f64_non_neg(s: &str) -> Result<f64, String> {
+    let v: f64 = s
+        .parse()
+        .map_err(|_| format!("'{}' is not a valid number", s))?;
+    if v.is_finite() && v >= 0.0 {
+        Ok(v)
+    } else {
+        Err(format!("'{}' is not a finite, non-negative number", s))
+    }
+}
 
-fn write(
+fn write_window(
     power: f64,
     heartrate: f64,
     duration: i64,
@@ -62,7 +74,7 @@ fn write(
             elevation,
             elevation / distance * 1000.0,
             qdh,
-            sep = SEPARATOR
+            sep = ','
         )
     }
 }
@@ -83,7 +95,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
 
     // get points
-    let filter: fn(&Trackpoint) -> bool = |t| t.has_altitude() && t.has_distance();
+    let filter: fn(&Trackpoint) -> bool = |t| t.altitude.is_some() && t.distance.is_some();
     let points = Trackpoint::from_tcx(&fs::read_to_string(cli.path)?.parse()?, filter)?;
 
     // first point (error if there is none)
@@ -93,7 +105,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let group_duration = if let Some(number) = cli.number {
         let number = number as i64;
         let end = points.last().expect("UNREACHABLE (first but no last)");
-        (end.duration_since(start) + number - 1) / number
+        (end.time.signed_duration_since(start.time).num_seconds() + number - 1) / number
     } else {
         cli.time
     };
@@ -110,9 +122,17 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     for (m, n) in points.iter().zip(points.iter().skip(1)) {
         // increments
-        let duration_inc = n.duration_since(m);
-        let distance_inc = n.distance()? - m.distance()?;
-        let elevation_inc = n.altitude()? - m.altitude()?;
+        let duration_inc = n.time.signed_duration_since(m.time).num_seconds();
+        let distance_inc = n
+            .distance
+            .expect("UNREACHABLE (points w/o distance filtered out)")
+            - m.distance
+                .expect("UNREACHABLE (points w/o distance filtered out)");
+        let elevation_inc = n
+            .altitude
+            .expect("UNREACHABLE (points w/o altitude filtered out)")
+            - m.altitude
+                .expect("UNREACHABLE (points w/o altitude filtered out)");
 
         // update distance
         distance += distance_inc;
@@ -127,9 +147,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
 
         // increment power / heartrate accumulators
-        power += (n.power_or_default() + m.power_or_default()) / 2.0 * (duration_inc as f64);
+        power += (n.power.unwrap_or(0.0) + m.power.unwrap_or(0.0)) / 2.0 * (duration_inc as f64);
         heartrate +=
-            (n.heartrate_or_default() + m.heartrate_or_default()) / 2.0 * (duration_inc as f64);
+            (n.heartrate.unwrap_or(0.0) + m.heartrate.unwrap_or(0.0)) / 2.0 * (duration_inc as f64);
 
         // update qdh
         distance_qdh += distance_inc;
@@ -146,7 +166,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             distance_qdh = 0.0;
 
             // print group
-            write(
+            write_window(
                 power, heartrate, duration, distance, elevation, qdh, cli.pretty,
             );
 
@@ -163,7 +183,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // print last group if applicable
     if duration > 0 {
         qdh += calc_qdh(elevation_qdh, distance_qdh);
-        write(
+        write_window(
             power, heartrate, duration, distance, elevation, qdh, cli.pretty,
         );
     }

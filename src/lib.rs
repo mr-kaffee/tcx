@@ -1,62 +1,167 @@
-use std::{error::Error, str::FromStr};
+use std::{error::Error, ops::Index, slice::Iter, str::FromStr};
 
 use chrono::{DateTime, Utc};
 use minidom::{Element, NSChoice};
 
+/// relevant XML tags of TCX files
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Tag {
+    Time,
+    Position,
+    LatitudeDegrees,
+    LongitudeDegrees,
+    AltitudeMeters,
+    DistanceMeters,
+    HeartRateBpm,
+    Value,
+    Cadence,
+    Extensions,
+    TPX,
+    Speed,
+    Watts,
+    RunCadence,
+    Activities,
+    Activity,
+    Lap,
+    Track,
+    Trackpoint,
+}
+
+// implementing as ref allows to use the type in minidom directly
+impl AsRef<str> for Tag {
+    fn as_ref(&self) -> &str {
+        match self {
+            Tag::Time => "Time",
+            Tag::Position => "Position",
+            Tag::LatitudeDegrees => "LatitudeDegrees",
+            Tag::LongitudeDegrees => "LongitudeDegrees",
+            Tag::AltitudeMeters => "AltitudeMeters",
+            Tag::DistanceMeters => "DistanceMeters",
+            Tag::HeartRateBpm => "HeartRateBpm",
+            Tag::Value => "Value",
+            Tag::Cadence => "Cadence",
+            Tag::Extensions => "Extensions",
+            Tag::TPX => "TPX",
+            Tag::Speed => "Speed",
+            Tag::Watts => "Watts",
+            Tag::RunCadence => "RunCadence",
+            Tag::Activities => "Activities",
+            Tag::Activity => "Activity",
+            Tag::Lap => "Lap",
+            Tag::Track => "Track",
+            Tag::Trackpoint => "Trackpoint",
+        }
+    }
+}
+
+/// Fields in the trackpoint enum
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum TrkPtField {
+    Latitude,
+    Longitude,
+    Altitude,
+    Distance,
+    Heartrate,
+    Cadence,
+    Speed,
+    Power,
+}
+
+impl Into<&str> for &TrkPtField {
+    /// Convert TrkPtFields to str representations
+    fn into(self) -> &'static str {
+        match self {
+            TrkPtField::Latitude => "Latitude",
+            TrkPtField::Longitude => "Longitued",
+            TrkPtField::Altitude => "Altitude",
+            TrkPtField::Distance => "Distance",
+            TrkPtField::Heartrate => "Heartrate",
+            TrkPtField::Cadence => "Cadence",
+            TrkPtField::Speed => "Speed",
+            TrkPtField::Power => "Power",
+        }
+    }
+}
+
+/// array of all possible TrkPtFields
+const TRK_PT_FIELDS: [TrkPtField; 8] = [
+    TrkPtField::Latitude,
+    TrkPtField::Longitude,
+    TrkPtField::Altitude,
+    TrkPtField::Distance,
+    TrkPtField::Heartrate,
+    TrkPtField::Cadence,
+    TrkPtField::Speed,
+    TrkPtField::Power,
+];
+
+impl TrkPtField {
+    /// returns an iterator over all possible TrkPtFields
+    pub fn iter() -> Iter<'static, TrkPtField> {
+        TRK_PT_FIELDS.iter()
+    }
+}
+
+/// a track point
 #[derive(Debug, PartialEq, Default)]
 pub struct Trackpoint {
-    time: DateTime<Utc>,
-    latitude: Option<f64>,
-    longitude: Option<f64>,
-    altitude: Option<f64>,
-    distance: Option<f64>,
-    heartrate: Option<f64>,
-    cadence: Option<f64>,
-    speed: Option<f64>,
-    power: Option<f64>,
+    pub time: DateTime<Utc>,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+    pub altitude: Option<f64>,
+    pub distance: Option<f64>,
+    pub heartrate: Option<f64>,
+    pub cadence: Option<f64>,
+    pub speed: Option<f64>,
+    pub power: Option<f64>,
 }
 
-fn get_child<'a>(e: &'a Element, n: &str) -> Option<&'a Element> {
-    e.get_child(n, NSChoice::Any)
+impl Index<&TrkPtField> for Trackpoint {
+    type Output = Option<f64>;
+
+    fn index(&self, index: &TrkPtField) -> &Self::Output {
+        match index {
+            TrkPtField::Latitude => &self.latitude,
+            TrkPtField::Longitude => &self.longitude,
+            TrkPtField::Altitude => &self.altitude,
+            TrkPtField::Distance => &self.distance,
+            TrkPtField::Heartrate => &self.heartrate,
+            TrkPtField::Cadence => &self.cadence,
+            TrkPtField::Speed => &self.speed,
+            TrkPtField::Power => &self.power,
+        }
+    }
 }
 
-fn value<T: FromStr>(e: &Element) -> Result<T, <T as FromStr>::Err> {
-    e.text().parse()
+trait TcxElement {
+    fn is_tag(&self, tag: Tag) -> bool;
+    fn child_value<T: FromStr>(&self, tags: &[Tag]) -> Result<Option<T>, <T as FromStr>::Err>;
+}
+
+impl TcxElement for Element {
+    fn is_tag(&self, tag: Tag) -> bool {
+        self.is(tag, NSChoice::Any)
+    }
+
+    fn child_value<T: FromStr>(&self, tags: &[Tag]) -> Result<Option<T>, <T as FromStr>::Err> {
+        let mut e = Some(self);
+        for tag in tags {
+            e = e.map(|e| e.get_child(*tag, NSChoice::Any)).flatten();
+        }
+        e.map(|e| e.text().parse()).transpose()
+    }
 }
 
 impl Trackpoint {
-    const TIME: &str = "Time";
-    const POSITION: &str = "Position";
-    const LATITUDE_DEGREES: &str = "LatitudeDegrees";
-    const LONGITUDE_DEGREES: &str = "LongitudeDegrees";
-    const ALTITUDE_METERS: &str = "AltitudeMeters";
-    const DISTANCE_METERS: &str = "DistanceMeters";
-    const HEART_RATE_BPM: &str = "HeartRateBpm";
-    const VALUE: &str = "Value";
-    const CADENCE: &str = "Cadence";
-    const EXTENSIONS: &str = "Extensions";
-    const TPX: &str = "TPX";
-    const SPEED: &str = "Speed";
-    const WATTS: &str = "Watts";
-
-    const F_ACTIVITIES: fn(&&Element) -> bool = |e| e.is("Activities", NSChoice::Any);
-    const F_ACTIVITY: fn(&&Element) -> bool = |e| e.is("Activity", NSChoice::Any);
-    const F_LAP: fn(&&Element) -> bool = |e| e.is("Lap", NSChoice::Any);
-    const F_TRACK: fn(&&Element) -> bool = |e| e.is("Track", NSChoice::Any);
-    const F_TRACKPOINT: fn(&&Element) -> bool = |e| e.is("Trackpoint", NSChoice::Any);
-
     pub fn from_tcx(tcx: &Element, filter: fn(&Self) -> bool) -> Result<Vec<Self>, Box<dyn Error>> {
         // traverse document
-        let it = tcx.children().filter(Self::F_ACTIVITIES);
-        let it = it.map(|e| e.children().filter(Self::F_ACTIVITY)).flatten();
-        let it = it.map(|e| e.children().filter(Self::F_LAP)).flatten();
-        let it = it.map(|e| e.children().filter(Self::F_TRACK)).flatten();
-        let it = it
-            .map(|e| e.children().filter(Self::F_TRACKPOINT))
-            .flatten();
-
-        // collect trackpoints in vector
-        let mut points = it
+        let mut points = [tcx]
+            .iter()
+            .flat_map(|e| e.children().filter(|e| e.is_tag(Tag::Activities)))
+            .flat_map(|e| e.children().filter(|e| e.is_tag(Tag::Activity)))
+            .flat_map(|e| e.children().filter(|e| e.is_tag(Tag::Lap)))
+            .flat_map(|e| e.children().filter(|e| e.is_tag(Tag::Track)))
+            .flat_map(|e| e.children().filter(|e| e.is_tag(Tag::Trackpoint)))
             .map(|trackpoint| Trackpoint::parse(trackpoint))
             .filter(|t| t.as_ref().map_or(true, filter))
             .collect::<Result<Vec<_>, _>>()?;
@@ -68,54 +173,21 @@ impl Trackpoint {
     }
 
     pub fn parse(trackpoint: &Element) -> Result<Self, Box<dyn Error>> {
-        let time = value(
-            get_child(trackpoint, Self::TIME)
-                .ok_or_else(|| format!("Missing time in {:?}", trackpoint))?,
-        )?;
-
-        let position = get_child(trackpoint, Self::POSITION);
-        let latitude = position
-            .map(|e| get_child(e, Self::LATITUDE_DEGREES))
-            .flatten()
-            .map(value)
-            .transpose()?;
-        let longitude = position
-            .map(|e| get_child(e, Self::LONGITUDE_DEGREES))
-            .flatten()
-            .map(value)
-            .transpose()?;
-
-        let altitude = get_child(trackpoint, Self::ALTITUDE_METERS)
-            .map(value)
-            .transpose()?;
-
-        let distance = get_child(trackpoint, Self::DISTANCE_METERS)
-            .map(value)
-            .transpose()?;
-
-        let heartrate = get_child(trackpoint, Self::HEART_RATE_BPM)
-            .map(|e| get_child(e, Self::VALUE))
-            .flatten()
-            .map(value)
-            .transpose()?;
-
-        let cadence = get_child(trackpoint, Self::CADENCE)
-            .map(value)
-            .transpose()?;
-
-        let tpx = get_child(trackpoint, Self::EXTENSIONS)
-            .map(|e| get_child(e, Self::TPX))
-            .flatten();
-        let speed = tpx
-            .map(|e| get_child(e, Self::SPEED))
-            .flatten()
-            .map(value)
-            .transpose()?;
-        let power = tpx
-            .map(|e| get_child(e, Self::WATTS))
-            .flatten()
-            .map(value)
-            .transpose()?;
+        let time = trackpoint
+            .child_value(&[Tag::Time])?
+            .ok_or_else(|| format!("Missing time in {:?}", trackpoint))?;
+        let latitude = trackpoint.child_value(&[Tag::Position, Tag::LatitudeDegrees])?;
+        let longitude = trackpoint.child_value(&[Tag::Position, Tag::LongitudeDegrees])?;
+        let altitude = trackpoint.child_value(&[Tag::AltitudeMeters])?;
+        let distance = trackpoint.child_value(&[Tag::DistanceMeters])?;
+        let heartrate = trackpoint.child_value(&[Tag::HeartRateBpm, Tag::Value])?;
+        let cadence = trackpoint.child_value(&[Tag::Cadence])?;
+        let speed = trackpoint.child_value(&[Tag::Extensions, Tag::TPX, Tag::Speed])?;
+        let power = trackpoint.child_value(&[Tag::Extensions, Tag::TPX, Tag::Watts])?;
+        let cadence = match cadence {
+            Some(_) => cadence,
+            None => trackpoint.child_value(&[Tag::Extensions, Tag::TPX, Tag::RunCadence])?,
+        };
 
         Ok(Trackpoint {
             time,
@@ -128,57 +200,5 @@ impl Trackpoint {
             speed,
             power,
         })
-    }
-
-    pub fn time(&self) -> DateTime<Utc> {
-        self.time
-    }
-
-    pub fn duration_since(&self, rhs: &Self) -> i64 {
-        self.time.signed_duration_since(rhs.time).num_seconds()
-    }
-
-    pub fn altitude(&self) -> Result<f64, String> {
-        self.altitude
-            .ok_or_else(|| format!("Missing altitude in {:?}", self))
-    }
-
-    pub fn distance(&self) -> Result<f64, String> {
-        self.distance
-            .ok_or_else(|| format!("Missing distance in {:?}", self))
-    }
-
-    pub fn heartrate(&self) -> Result<f64, String> {
-        self.heartrate
-            .ok_or_else(|| format!("Missing heartrate in {:?}", self))
-    }
-
-    pub fn heartrate_or_default(&self) -> f64 {
-        self.heartrate.unwrap_or_default()
-    }
-
-    pub fn power(&self) -> Result<f64, String> {
-        self.power
-            .ok_or_else(|| format!("Missing power in {:?}", self))
-    }
-
-    pub fn power_or_default(&self) -> f64 {
-        self.power.unwrap_or_default()
-    }
-
-    pub fn has_altitude(&self) -> bool {
-        self.altitude.is_some()
-    }
-
-    pub fn has_distance(&self) -> bool {
-        self.distance.is_some()
-    }
-
-    pub fn has_heartrate(&self) -> bool {
-        self.heartrate.is_some()
-    }
-
-    pub fn has_power(&self) -> bool {
-        self.power.is_some()
     }
 }
