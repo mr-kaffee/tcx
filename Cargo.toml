@@ -12,3 +12,4 @@ description = "Simple TCX file parser"
 minidom = "*"
 clap = { version = "4.*", features = ["derive"] }
 chrono = "*"
+tcx_macro_derive = { path = "tcx_macro_derive" }

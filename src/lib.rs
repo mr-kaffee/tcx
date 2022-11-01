@@ -6,9 +6,10 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use minidom::{Element, NSChoice};
+use tcx_macro_derive::{AsRefStr, ConstArray};
 
 /// relevant XML tags of TCX files
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, AsRefStr)]
 pub enum Tag {
     Time,
     Position,
@@ -31,42 +32,8 @@ pub enum Tag {
     Trackpoint,
 }
 
-impl AsRef<str> for Tag {
-    /// Get `Tag` as `&str`
-    ///
-    /// # Examples
-    /// ```
-    /// # use tcx::*;
-    /// let tag = Tag::Extensions;
-    /// assert_eq!(format!("Tag '{}'", tag.as_ref()), "Tag 'Extensions'");
-    /// ```
-    fn as_ref(&self) -> &str {
-        match self {
-            Tag::Time => "Time",
-            Tag::Position => "Position",
-            Tag::LatitudeDegrees => "LatitudeDegrees",
-            Tag::LongitudeDegrees => "LongitudeDegrees",
-            Tag::AltitudeMeters => "AltitudeMeters",
-            Tag::DistanceMeters => "DistanceMeters",
-            Tag::HeartRateBpm => "HeartRateBpm",
-            Tag::Value => "Value",
-            Tag::Cadence => "Cadence",
-            Tag::Extensions => "Extensions",
-            Tag::TPX => "TPX",
-            Tag::Speed => "Speed",
-            Tag::Watts => "Watts",
-            Tag::RunCadence => "RunCadence",
-            Tag::Activities => "Activities",
-            Tag::Activity => "Activity",
-            Tag::Lap => "Lap",
-            Tag::Track => "Track",
-            Tag::Trackpoint => "Trackpoint",
-        }
-    }
-}
-
 /// Fields of the [`Trackpoint`] enum
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, AsRefStr, ConstArray)]
 pub enum TrkPtField {
     /// Represent [`Trackpoint::latitude`]
     Latitude,
@@ -87,6 +54,11 @@ pub enum TrkPtField {
 }
 
 impl TrkPtField {
+    /// Get tags for field as slice of slices of [`Tag`]s.
+    ///
+    /// If there is more than one possibility, each contained slice of [`Tag`]s represents one option.
+    ///
+    /// Use with [`TcxElement::child_value`]
     pub fn get_tags(&self) -> &[&[Tag]] {
         match self {
             TrkPtField::Latitude => &[&[Tag::Position, Tag::LatitudeDegrees]],
@@ -104,61 +76,26 @@ impl TrkPtField {
     }
 }
 
-impl AsRef<str> for TrkPtField {
-    /// Get `TrkPtField` as `&str`
-    ///
-    /// # Examples
-    /// ```
-    /// # use tcx::*;
-    /// let trk_pt_field = TrkPtField::Altitude;
-    /// assert_eq!(format!("Track Point Field '{}'", trk_pt_field.as_ref()), "Track Point Field 'Altitude'");
-    /// ```
-    fn as_ref(&self) -> &str {
-        match self {
-            TrkPtField::Latitude => "Latitude",
-            TrkPtField::Longitude => "Longitued",
-            TrkPtField::Altitude => "Altitude",
-            TrkPtField::Distance => "Distance",
-            TrkPtField::Heartrate => "Heartrate",
-            TrkPtField::Cadence => "Cadence",
-            TrkPtField::Speed => "Speed",
-            TrkPtField::Power => "Power",
-        }
-    }
-}
-
-/// array of all variants for the enum [`TrkPtField`]
-pub const TRK_PT_FIELDS: [TrkPtField; 8] = [
-    TrkPtField::Latitude,
-    TrkPtField::Longitude,
-    TrkPtField::Altitude,
-    TrkPtField::Distance,
-    TrkPtField::Heartrate,
-    TrkPtField::Cadence,
-    TrkPtField::Speed,
-    TrkPtField::Power,
-];
-
 /// a track point
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct Trackpoint {
-    /// Timestamp when the trackpoint was recorded (`<Time>`)
+    /// Timestamp when the trackpoint was recorded ([`<Time>`][Tag::Time])
     pub time: DateTime<Utc>,
-    /// Longitude part of the position ([`<Position><LatitudeDegrees>`][TrkPtField::Latitude])
+    /// Longitude part of the position ([`<Position>`][Tag::Position][`<LatitudeDegrees>`][Tag::LatitudeDegrees], see [TrkPtField::Latitude])
     pub latitude: Option<f64>,
-    /// Latitude part of the position ([`<Position><LongitudeDegrees>`][TrkPtField::Longitude])
+    /// Latitude part of the position ([`<Position>`][Tag::Position]['<LongitudeDegrees>`][Tag::LongitudeDegrees], see [TrkPtField::Longitude])
     pub longitude: Option<f64>,
-    /// Altitude at the track point's position ([`<AltitudeMeters>`][TrkPtField::Altitude])
+    /// Altitude at the track point's position ([`<AltitudeMeters>`][Tag::AltitudeMeters], see [TrkPtField::Altitude])
     pub altitude: Option<f64>,
-    /// Distance travelled in track until this track point ([`<DistanceMeters>`][TrkPtField::Distance])
+    /// Distance travelled in track until this track point ([`<DistanceMeters>`][Tag::DistanceMeters], see [TrkPtField::Distance])
     pub distance: Option<f64>,
-    /// Instantaneous heart rate ([`<HeartRateBpm><Value>`][TrkPtField::Heartrate])
+    /// Instantaneous heart rate ([`<HeartRateBpm>`][Tag::HeartRateBpm]['<Value>`][Tag::Value], see [TrkPtField::Heartrate])
     pub heartrate: Option<f64>,
-    /// Instantaneous cadence ([`<Cadence>` or `<Extensions><TPX><RunCadence>`][TrkPtField::Cadence])
+    /// Instantaneous cadence ([`<Cadence>`][Tag::Cadence] or [`<Extensions>`][Tag::Extensions]['<TPX>`][Tag::TPX]['<RunCadence>`][Tag::RunCadence], see [TrkPtField::Cadence])
     pub cadence: Option<f64>,
-    /// Instantaneous speed ([`<Extensions><TPX><Speed>`][TrkPtField::Speed])
+    /// Instantaneous speed ([`<Extensions>`][Tag::Extensions]['<TPX>`][Tag::TPX]['<Speed>`][Tag::Speed], see [TrkPtField::Speed])
     pub speed: Option<f64>,
-    /// Instantaneous power ([`<Extensions><TPX><Watts>`][TrkPtField::Power])
+    /// Instantaneous power ([`<Extensions>`][Tag::Extensions]['<TPX>`][Tag::TPX]['<Watts>`][Tag::Watts], see [TrkPtField::Power])
     pub power: Option<f64>,
 }
 
@@ -223,7 +160,7 @@ impl TcxElement for Element {
     /// </Root>"#;
     ///
     /// let val: f64 = doc.parse::<Element>().unwrap()
-    ///     .child_value(&[Tag::Extensions, Tag::TPX, Tag::Speed])
+    ///     .child_value(TrkPtField::Speed.get_tags()[0])
     ///     .expect("Parse error").expect("Missing node");
     /// assert_eq!(val, 42.0);
     /// ```
@@ -304,7 +241,7 @@ impl Trackpoint {
             ..Trackpoint::default()
         };
 
-        for field in &TRK_PT_FIELDS {
+        for field in &TRK_PT_FIELD {
             for tags in field.get_tags() {
                 if let Some(val) = trackpoint.child_value(tags)? {
                     point[field] = Some(val);
