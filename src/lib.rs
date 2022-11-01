@@ -81,21 +81,21 @@ impl TrkPtField {
 pub struct Trackpoint {
     /// Timestamp when the trackpoint was recorded ([`<Time>`][Tag::Time])
     pub time: DateTime<Utc>,
-    /// Longitude part of the position ([`<Position>`][Tag::Position][`<LatitudeDegrees>`][Tag::LatitudeDegrees], see [TrkPtField::Latitude])
+    /// Latitude part of the position ([`<Position>`][Tag::Position]&#173;[`<LatitudeDegrees>`][Tag::LatitudeDegrees], see [`TrkPtField::Latitude`])
     pub latitude: Option<f64>,
-    /// Latitude part of the position ([`<Position>`][Tag::Position]['<LongitudeDegrees>`][Tag::LongitudeDegrees], see [TrkPtField::Longitude])
+    /// Longitude part of the position ([`<Position>`][Tag::Position]&#173;[`<LongitudeDegrees>`][Tag::LongitudeDegrees], see [`TrkPtField::Longitude`])
     pub longitude: Option<f64>,
-    /// Altitude at the track point's position ([`<AltitudeMeters>`][Tag::AltitudeMeters], see [TrkPtField::Altitude])
+    /// Altitude at the track point's position ([`<AltitudeMeters>`][Tag::AltitudeMeters], see [`TrkPtField::Altitude`])
     pub altitude: Option<f64>,
-    /// Distance travelled in track until this track point ([`<DistanceMeters>`][Tag::DistanceMeters], see [TrkPtField::Distance])
+    /// Distance travelled in track until this track point ([`<DistanceMeters>`][Tag::DistanceMeters], see [`TrkPtField::Distance`])
     pub distance: Option<f64>,
-    /// Instantaneous heart rate ([`<HeartRateBpm>`][Tag::HeartRateBpm]['<Value>`][Tag::Value], see [TrkPtField::Heartrate])
+    /// Instantaneous heart rate ([`<HeartRateBpm>`][Tag::HeartRateBpm]&#173;[`<Value>`][Tag::Value], see [`TrkPtField::Heartrate`])
     pub heartrate: Option<f64>,
-    /// Instantaneous cadence ([`<Cadence>`][Tag::Cadence] or [`<Extensions>`][Tag::Extensions]['<TPX>`][Tag::TPX]['<RunCadence>`][Tag::RunCadence], see [TrkPtField::Cadence])
+    /// Instantaneous cadence ([`<Cadence>`][Tag::Cadence] or [`<Extensions>`][Tag::Extensions]&#173;[`<TPX>`][Tag::TPX]&#173;[`<RunCadence>`][Tag::RunCadence], see [`TrkPtField::Cadence`])
     pub cadence: Option<f64>,
-    /// Instantaneous speed ([`<Extensions>`][Tag::Extensions]['<TPX>`][Tag::TPX]['<Speed>`][Tag::Speed], see [TrkPtField::Speed])
+    /// Instantaneous speed ([`<Extensions>`][Tag::Extensions]&#173;[`<TPX>`][Tag::TPX]&#173;[`<Speed>`][Tag::Speed], see [`TrkPtField::Speed`])
     pub speed: Option<f64>,
-    /// Instantaneous power ([`<Extensions>`][Tag::Extensions]['<TPX>`][Tag::TPX]['<Watts>`][Tag::Watts], see [TrkPtField::Power])
+    /// Instantaneous power ([`<Extensions>`][Tag::Extensions]&#173;[`<TPX>`][Tag::TPX]&#173;[`<Watts>`][Tag::Watts], see [`TrkPtField::Power`])
     pub power: Option<f64>,
 }
 
@@ -320,5 +320,35 @@ mod tests {
                 p
             );
         }
+    }
+
+    #[test]
+    fn test_trackpoint_index() {
+        let trackpoint = Trackpoint {
+            time: "2022-12-31 12:00:00 UTC".parse().unwrap(),
+            distance: Some(12.0),
+            power: Some(200.0),
+            ..Default::default()
+        };
+
+        assert_eq!(Some(12.0), trackpoint[&TrkPtField::Distance]);
+        assert_eq!(Some(200.0), trackpoint[&TrkPtField::Power]);
+        assert!(trackpoint[&TrkPtField::Heartrate].is_none())
+    }
+
+    #[test]
+    fn test_trackpoint_index_mut() {
+        let mut trackpoint = Trackpoint {
+            distance: Some(0.0),
+            longitude: Some(9.0),
+            ..Default::default()
+        };
+        trackpoint[&TrkPtField::Distance] = Some(42.0);
+        trackpoint[&TrkPtField::Altitude] = Some(8848.0);
+        trackpoint[&TrkPtField::Longitude] = None;
+
+        assert_eq!(Some(42.0), trackpoint.distance);
+        assert_eq!(Some(8848.0), trackpoint.altitude);
+        assert!(trackpoint.longitude.is_none());
     }
 }
