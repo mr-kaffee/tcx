@@ -238,7 +238,7 @@ impl Trackpoint {
             .ok_or_else(|| format!("Missing time in {:?}", trackpoint))?;
         let mut point = Trackpoint {
             time,
-            ..Trackpoint::default()
+            ..Default::default()
         };
 
         for field in &TRK_PT_FIELD {
@@ -251,5 +251,74 @@ impl Trackpoint {
         }
 
         Ok(point)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Duration;
+
+    use super::*;
+
+    const TIME_0: &str = "2022-12-31 12:00:00 UTC";
+    const DOC: &str = r#"<TCX xmlns="TCX">
+      <Activities>
+        <Activity>
+          <Lap>
+            <Track>
+              <Trackpoint>
+                <Time>2022-12-31 12:00:00 UTC</Time>
+                <DistanceMeters>0</DistanceMeters>
+              </Trackpoint>
+              <Trackpoint>
+                <Time>2022-12-31 12:00:01 UTC</Time>
+                <DistanceMeters>3.6</DistanceMeters>
+              </Trackpoint>
+              <Trackpoint>
+                <Time>2022-12-31 12:00:02 UTC</Time>
+                <DistanceMeters>7.2</DistanceMeters>
+              </Trackpoint>
+            </Track>
+          </Lap>
+          <Lap>
+            <Track>
+              <Trackpoint>
+                <Time>2022-12-31 12:00:02 UTC</Time>
+                <DistanceMeters>7.2</DistanceMeters>
+              </Trackpoint>
+              <Trackpoint>
+                <Time>2022-12-31 12:00:03 UTC</Time>
+                <DistanceMeters>10.8</DistanceMeters>
+              </Trackpoint>
+              <Trackpoint>
+                <Time>2022-12-31 12:00:04 UTC</Time>
+                <DistanceMeters>14.4</DistanceMeters>
+              </Trackpoint>
+            </Track>
+          </Lap>
+        </Activity>
+      </Activities>
+    </TCX>"#;
+
+    #[test]
+    fn test_trackpoint_from_tcx() {
+        let points = Trackpoint::from_tcx(&DOC.parse().unwrap(), |_| true).unwrap();
+        assert_eq!(5, points.len());
+
+        let time_0 = TIME_0.parse::<DateTime<Utc>>().unwrap();
+        for (k, p) in points.iter().enumerate() {
+            let time = time_0
+                .checked_add_signed(Duration::seconds(k as i64))
+                .unwrap();
+            let distance = Some((k as f64) * 3.6);
+            assert_eq!(
+                &Trackpoint {
+                    time,
+                    distance,
+                    ..Default::default()
+                },
+                p
+            );
+        }
     }
 }
