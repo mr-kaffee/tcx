@@ -25,6 +25,8 @@ pub enum Tag {
     Speed,
     Watts,
     RunCadence,
+    Courses,
+    Course,
     Activities,
     Activity,
     Lap,
@@ -177,15 +179,22 @@ impl Trackpoint {
     /// Read track points from TCX element flattening any structure
     ///
     /// This function assumes that [`<Trackpoint>`][Tag::Trackpoint]s are nested in [`<Track>`][Tag::Track]s, [`<Track>`][Tag::Track]s
-    /// are nested in [`<Lap>`][Tag::Lap]s, [`<Lap>`][Tag::Lap]s are nested in [`<Activity>`][Tag::Activity]s, and
-    /// [`<Activity>`][Tag::Activity]s are nested in [`<Activities>`][Tag::Activities]'
+    /// are either nested in [`<Lap>`][Tag::Lap]s which are nested in [`<Activity>`][Tag::Activity]s which are nested in
+    /// [`<Activities>`][Tag::Activities]' or they are nested in [`Course`][Tag::Course]s which are nested in [`Courses`][Tag::Courses]'.
     pub fn from_tcx(tcx: &Element, filter: fn(&Self) -> bool) -> Result<Vec<Self>, Box<dyn Error>> {
         // traverse document
+
         let mut points = [tcx]
             .iter()
             .flat_map(|e| e.children().filter(|e| e.is_tag(Tag::Activities)))
             .flat_map(|e| e.children().filter(|e| e.is_tag(Tag::Activity)))
             .flat_map(|e| e.children().filter(|e| e.is_tag(Tag::Lap)))
+            .chain(
+                [tcx]
+                    .iter()
+                    .flat_map(|e| e.children().filter(|e| e.is_tag(Tag::Courses)))
+                    .flat_map(|e| e.children().filter(|e| e.is_tag(Tag::Course))),
+            )
             .flat_map(|e| e.children().filter(|e| e.is_tag(Tag::Track)))
             .flat_map(|e| e.children().filter(|e| e.is_tag(Tag::Trackpoint)))
             .map(|trackpoint| Trackpoint::parse(trackpoint))
