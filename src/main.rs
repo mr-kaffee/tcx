@@ -2,6 +2,7 @@ use clap::Parser;
 use std::{error::Error, fs, io::Write};
 use tcx::*;
 
+/// Command Line Interface for TCX parser
 mod cli {
     use super::GroupBy;
     use clap::Parser;
@@ -116,8 +117,15 @@ mod cli {
             }
         }
     }
+
+    #[test]
+    fn verify_cli() {
+        use clap::CommandFactory;
+        Cli::command().debug_assert()
+    }
 }
 
+/// Debug code
 mod debug {
     use super::cli::Debug;
     use super::*;
@@ -198,6 +206,7 @@ mod debug {
     }
 }
 
+/// grouping by distance or duration
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum GroupBy {
     Distance,
@@ -205,7 +214,8 @@ pub enum GroupBy {
 }
 
 impl GroupBy {
-    pub fn get(&self, m: &Trackpoint, n: &Trackpoint) -> f64 {
+    /// get delta of two track points for group by parameter
+    pub fn delta(&self, m: &Trackpoint, n: &Trackpoint) -> f64 {
         match self {
             GroupBy::Distance => n
                 .distance
@@ -216,6 +226,7 @@ impl GroupBy {
     }
 }
 
+/// accumulator values
 #[derive(Clone, Copy, PartialEq, PartialOrd, Debug)]
 struct Values {
     group_len: f64,
@@ -262,9 +273,9 @@ impl Values {
 
     fn delta(m: &Trackpoint, n: &Trackpoint, group_by: GroupBy) -> Self {
         Self {
-            group_len: group_by.get(m, n),
-            distance: GroupBy::Distance.get(m, n),
-            duration: GroupBy::Duration.get(m, n),
+            group_len: group_by.delta(m, n),
+            distance: GroupBy::Distance.delta(m, n),
+            duration: GroupBy::Duration.delta(m, n),
             elevation: (n
                 .altitude
                 .expect("UNREACHABLE! Points w/o altitude filtered out")
@@ -272,13 +283,14 @@ impl Values {
                     .expect("UNREACHABLE! Points w/o altitude filtered out"))
             .max(0.0),
             power: (n.power.unwrap_or(0.0) + m.power.unwrap_or(0.0)) / 2.0
-                * (GroupBy::Duration.get(m, n) as f64),
+                * (GroupBy::Duration.delta(m, n) as f64),
             heartrate: (n.heartrate.unwrap_or(0.0) + m.heartrate.unwrap_or(0.0)) / 2.0
-                * (GroupBy::Duration.get(m, n) as f64),
+                * (GroupBy::Duration.delta(m, n) as f64),
         }
     }
 }
 
+/// Quäldich-Härte accumulator
 #[derive(Clone, Copy, PartialEq, PartialOrd, Debug)]
 struct Qdh {
     qdh: f64,
@@ -389,7 +401,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let group_len = match cli.grouping {
         cli::Grouping::Length(_, length) => length,
         cli::Grouping::Count(group_by, count) => {
-            let tot = group_by.get(
+            let tot = group_by.delta(
                 points.first().expect("No points"),
                 points.last().expect("UNREACHABLE! First but no last point"),
             );
